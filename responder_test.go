@@ -2,6 +2,7 @@ package responder
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"strings"
 	"testing"
@@ -89,6 +90,31 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles json.Marshaler with error", func(t *testing.T) {
 		marshaler := errorJSONMarshaler{}
+		result := contentFormatter(marshaler)
+
+		expectedPrefix := "received invalid content"
+		if !strings.Contains(string(result), expectedPrefix) {
+			t.Errorf("expected error message to contain %q, got %q", expectedPrefix, string(result))
+		}
+	})
+
+	t.Run("handles xml.Marshaler implementation", func(t *testing.T) {
+		marshaler := customXMLMarshaler{Name: "test", Value: 42}
+		result := contentFormatter(marshaler)
+
+		// Verify it was marshaled as XML
+		var parsed customXMLMarshaler
+		if err := xml.Unmarshal(result, &parsed); err != nil {
+			t.Fatalf("failed to unmarshal XML result: %v", err)
+		}
+
+		if parsed.Name != "test" || parsed.Value != 42 {
+			t.Errorf("expected Name='test' and Value=42, got Name=%q Value=%d", parsed.Name, parsed.Value)
+		}
+	})
+
+	t.Run("handles xml.Marshaler with error", func(t *testing.T) {
+		marshaler := errorXMLMarshaler{}
 		result := contentFormatter(marshaler)
 
 		expectedPrefix := "received invalid content"
@@ -323,4 +349,31 @@ type errorTextMarshaler struct{}
 
 func (e errorTextMarshaler) MarshalText() ([]byte, error) {
 	return nil, fmt.Errorf("intentional text marshal error")
+}
+
+type customXMLMarshaler struct {
+	XMLName xml.Name `xml:"custom"`
+	Name    string   `xml:"name"`
+	Value   int      `xml:"value"`
+}
+
+func (c customXMLMarshaler) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	// Custom XML marshaling logic
+	start.Name.Local = "custom"
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	if err := e.EncodeElement(c.Name, xml.StartElement{Name: xml.Name{Local: "name"}}); err != nil {
+		return err
+	}
+	if err := e.EncodeElement(c.Value, xml.StartElement{Name: xml.Name{Local: "value"}}); err != nil {
+		return err
+	}
+	return e.EncodeToken(start.End())
+}
+
+type errorXMLMarshaler struct{}
+
+func (e errorXMLMarshaler) MarshalXML(enc *xml.Encoder, start xml.StartElement) error {
+	return fmt.Errorf("intentional XML marshal error")
 }

@@ -3,6 +3,7 @@ package responder
 import (
 	"encoding"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -15,6 +16,7 @@ const (
 	CSVContentType  = "text/csv; charset=utf-8"
 	HTMLContentType = "text/html; charset=utf-8"
 	JSONContentType = "application/json; charset=utf-8"
+	XMLContentType  = "application/xml; charset=utf-8"
 )
 
 const (
@@ -43,6 +45,13 @@ func contentFormatter(c any) []byte {
 		return []byte(v)
 	case []byte:
 		return v
+	case xml.Marshaler:
+		// Create a simple encoder to marshal XML
+		b, err := xml.Marshal(v)
+		if err != nil {
+			return fmt.Appendf(nil, "received invalid content - %s", err)
+		}
+		return b
 	case json.Marshaler:
 		b, err := v.MarshalJSON()
 		if err != nil {

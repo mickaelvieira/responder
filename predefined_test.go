@@ -1121,3 +1121,333 @@ Bob,"Special chars: @#$%^&*()"`
 		}
 	})
 }
+
+func TestXMLResponder(t *testing.T) {
+	t.Run("returns a Responder interface", func(t *testing.T) {
+		responder := XMLResponder()
+		if responder == nil {
+			t.Fatal("expected non-nil Responder")
+		}
+	})
+
+	t.Run("sets correct content type", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		responder.Send200(w, "<root><message>success</message></root>")
+
+		contentType := w.Header().Get("Content-Type")
+		expected := XMLContentType
+		if contentType != expected {
+			t.Errorf("expected Content-Type %q, got %q", expected, contentType)
+		}
+	})
+
+	t.Run("sends XML content", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
+<users>
+	<user>
+		<id>1</id>
+		<name>John Doe</name>
+		<email>john@example.com</email>
+	</user>
+	<user>
+		<id>2</id>
+		<name>Jane Smith</name>
+		<email>jane@example.com</email>
+	</user>
+</users>`
+
+		responder.Send200(w, xmlContent)
+
+		if w.Body.String() != xmlContent {
+			t.Errorf("expected body %q, got %q", xmlContent, w.Body.String())
+		}
+	})
+
+	t.Run("sends error messages as XML text", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		errorMessage := "<error>Invalid XML format</error>"
+
+		responder.Send400(w, errors.New("parse error"), errorMessage)
+
+		if w.Body.String() != errorMessage {
+			t.Errorf("expected error message %q, got %q", errorMessage, w.Body.String())
+		}
+	})
+
+	t.Run("accepts additional options modifiers", func(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		responder := XMLResponder(WithLogger(logger))
+
+		if responder == nil {
+			t.Fatal("expected non-nil Responder with options")
+		}
+	})
+
+	t.Run("applies custom error formatter", func(t *testing.T) {
+		customFormatter := func(message string) any {
+			return fmt.Sprintf("<error><message>%s</message></error>", message)
+		}
+
+		responder := XMLResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		responder.Send400(w, errors.New("test"), "bad data")
+
+		expected := "<error><message>bad data</message></error>"
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
+
+	t.Run("works with all HTTP methods", func(t *testing.T) {
+		testCases := []struct {
+			name       string
+			sendFunc   func(Responder, http.ResponseWriter)
+			wantStatus int
+			wantBody   string
+		}{
+			{
+				name: "Send200",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send200(w, "<status>ok</status>")
+				},
+				wantStatus: http.StatusOK,
+				wantBody:   "<status>ok</status>",
+			},
+			{
+				name: "Send201",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send201(w, "<status>created</status>")
+				},
+				wantStatus: http.StatusCreated,
+				wantBody:   "<status>created</status>",
+			},
+			{
+				name: "Send202",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send202(w, "<status>accepted</status>")
+				},
+				wantStatus: http.StatusAccepted,
+				wantBody:   "<status>accepted</status>",
+			},
+			{
+				name: "Send204",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send204(w)
+				},
+				wantStatus: http.StatusNoContent,
+				wantBody:   "",
+			},
+			{
+				name: "Send400",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send400(w, errors.New("bad request"), "<error>Invalid XML</error>")
+				},
+				wantStatus: http.StatusBadRequest,
+				wantBody:   "<error>Invalid XML</error>",
+			},
+			{
+				name: "Send401",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send401(w, errors.New("unauthorized"), "<error>Authentication required</error>")
+				},
+				wantStatus: http.StatusUnauthorized,
+				wantBody:   "<error>Authentication required</error>",
+			},
+			{
+				name: "Send403",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send403(w, errors.New("forbidden"), "<error>Access denied</error>")
+				},
+				wantStatus: http.StatusForbidden,
+				wantBody:   "<error>Access denied</error>",
+			},
+			{
+				name: "Send404",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send404(w, errors.New("not found"), "<error>Resource not found</error>")
+				},
+				wantStatus: http.StatusNotFound,
+				wantBody:   "<error>Resource not found</error>",
+			},
+			{
+				name: "Send500",
+				sendFunc: func(r Responder, w http.ResponseWriter) {
+					r.Send500(w, errors.New("internal error"), "<error>Server error</error>")
+				},
+				wantStatus: http.StatusInternalServerError,
+				wantBody:   "<error>Server error</error>",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				responder := XMLResponder()
+				w := httptest.NewRecorder()
+
+				tc.sendFunc(responder, w)
+
+				if w.Code != tc.wantStatus {
+					t.Errorf("expected status %d, got %d", tc.wantStatus, w.Code)
+				}
+
+				contentType := w.Header().Get("Content-Type")
+				if contentType != XMLContentType {
+					t.Errorf("expected Content-Type %q, got %q", XMLContentType, contentType)
+				}
+
+				if w.Body.String() != tc.wantBody {
+					t.Errorf("expected body %q, got %q", tc.wantBody, w.Body.String())
+				}
+			})
+		}
+	})
+
+	t.Run("handles complex XML structure", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
+<catalog>
+	<book id="bk101">
+		<author>Gambardella, Matthew</author>
+		<title>XML Developer's Guide</title>
+		<genre>Computer</genre>
+		<price>44.95</price>
+		<publish_date>2000-10-01</publish_date>
+		<description>An in-depth look at creating applications with XML.</description>
+	</book>
+	<book id="bk102">
+		<author>Ralls, Kim</author>
+		<title>Midnight Rain</title>
+		<genre>Fantasy</genre>
+		<price>5.95</price>
+		<publish_date>2000-12-16</publish_date>
+		<description>A former architect battles corporate zombies.</description>
+	</book>
+</catalog>`
+
+		responder.Send200(w, xmlContent)
+
+		if w.Body.String() != xmlContent {
+			t.Errorf("XML content mismatch")
+		}
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("handles byte slice XML content", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		content := []byte("<data><value>test</value></data>")
+
+		responder.Send200(w, content)
+
+		if w.Body.String() != string(content) {
+			t.Errorf("expected body %q, got %q", string(content), w.Body.String())
+		}
+	})
+
+	t.Run("multiple option modifiers applied correctly", func(t *testing.T) {
+		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+		customFormatter := func(message string) any {
+			return fmt.Sprintf(`<?xml version="1.0"?>
+<error>
+	<type>system</type>
+	<message>%s</message>
+</error>`, message)
+		}
+
+		responder := XMLResponder(
+			WithLogger(logger),
+			WithErrorFormatter(customFormatter),
+		)
+
+		w := httptest.NewRecorder()
+		responder.Send500(w, errors.New("test"), "Database connection failed")
+
+		expected := `<?xml version="1.0"?>
+<error>
+	<type>system</type>
+	<message>Database connection failed</message>
+</error>`
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("expected status 500, got %d", w.Code)
+		}
+	})
+
+	t.Run("handles empty XML content", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+
+		responder.Send200(w, "")
+
+		if w.Body.String() != "" {
+			t.Errorf("expected empty body, got %q", w.Body.String())
+		}
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+	})
+
+	t.Run("handles XML with CDATA sections", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		xmlContent := `<message><![CDATA[This is <markup> & special characters]]></message>`
+
+		responder.Send200(w, xmlContent)
+
+		if w.Body.String() != xmlContent {
+			t.Errorf("expected body %q, got %q", xmlContent, w.Body.String())
+		}
+	})
+
+	t.Run("handles XML with namespaces", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		xmlContent := `<?xml version="1.0"?>
+<root xmlns:h="http://www.w3.org/TR/html4/" xmlns:f="https://www.example.com/furniture">
+	<h:table>
+		<h:tr>
+			<h:td>Apples</h:td>
+			<h:td>Bananas</h:td>
+		</h:tr>
+	</h:table>
+	<f:table>
+		<f:name>Coffee Table</f:name>
+		<f:width>80</f:width>
+	</f:table>
+</root>`
+
+		responder.Send200(w, xmlContent)
+
+		if w.Body.String() != xmlContent {
+			t.Errorf("expected body %q, got %q", xmlContent, w.Body.String())
+		}
+	})
+
+	t.Run("handles XML with attributes and special characters", func(t *testing.T) {
+		responder := XMLResponder()
+		w := httptest.NewRecorder()
+		xmlContent := `<product id="123" available="true">
+	<name lang="en">Coffee &amp; Tea</name>
+	<description>Great for &lt;morning&gt; &quot;refreshment&quot;</description>
+</product>`
+
+		responder.Send200(w, xmlContent)
+
+		if w.Body.String() != xmlContent {
+			t.Errorf("expected body %q, got %q", xmlContent, w.Body.String())
+		}
+	})
+}

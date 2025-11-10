@@ -32,3 +32,8 @@ func HTMLResponder(options ...OptionsModifier) Responder {
 func CSVResponder(options ...OptionsModifier) Responder {
 	return New(CSVContentType, options...)
 }
+
+// XMLResponder creates a new XML responder.
+func XMLResponder(options ...OptionsModifier) Responder {
+	return New(XMLContentType, options...)
+}
