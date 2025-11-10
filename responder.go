@@ -56,7 +56,11 @@ func contentFormatter(c any) []byte {
 		}
 		return b
 	default:
-		return fmt.Appendf(nil, "received invalid content - %s", fmt.Errorf("unknown type %T", c))
+		b, err := json.Marshal(v)
+		if err != nil {
+			return fmt.Appendf(nil, "received invalid content - %s", err)
+		}
+		return b
 	}
 }
 
