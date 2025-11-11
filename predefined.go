@@ -4,9 +4,9 @@ type jsonError struct {
 	Error string `json:"error"`
 }
 
-func jsonFormatter(message string) any {
+func jsonFormatter(message any) any {
 	return jsonError{
-		Error: message,
+		Error: MessageToString(message),
 	}
 }
 

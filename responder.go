@@ -73,12 +73,30 @@ func contentFormatter(c any) []byte {
 	}
 }
 
+// MessageToString converts an error message of any type to a string.
+// If the message is a string, it is returned as is.
+// If the message implements fmt.Stringer, its String() method is called.
+// If the message is an error, its Error() method is called.
+// For any other type, a generic error message is returned.
+func MessageToString(message any) string {
+	switch v := message.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	case error:
+		return v.Error()
+	default:
+		return GenericErrorMessage
+	}
+}
+
 // ErrorFormatter defines a function type for formatting error messages
 // before sending them in the response.
 // It receives the original error message as a string and returns
 // the formatted message as an any type. The returned value
 // should be a string, a []byte, or a struct that can be marshaled to JSON.
-type ErrorFormatter func(string) any
+type ErrorFormatter func(any) any
 
 // ContentFormatter defines a function type for formatting
 // the content before sending it in the response.
@@ -86,8 +104,10 @@ type ErrorFormatter func(string) any
 // the formatted content as a []byte.
 type ContentFormatter func(any) []byte
 
-var noopFormatter = func(message string) any {
-	return message
+// stringFormatter is the default error formatter that converts
+// the error message to a string.
+var stringFormatter = func(message any) any {
+	return MessageToString(message)
 }
 
 // OptionsModifier defines a function type for modifying Responder options.
@@ -152,32 +172,32 @@ type Responder interface {
 	// Send400 sends a 400 Bad Request response. It takes as second argument
 	// the error that caused the bad request, and as third argument a message
 	// to be sent to the client. The error will be logged if a logger was provided.
-	Send400(http.ResponseWriter, error, string)
+	Send400(http.ResponseWriter, error, any)
 
 	// Send401 sends a 401 Unauthorized response. It takes as second argument
 	// the error that caused the unauthorized response, and as third argument
 	// a message to be sent to the client. The error will be logged if a logger was provided.
-	Send401(http.ResponseWriter, error, string)
+	Send401(http.ResponseWriter, error, any)
 
 	// Send403 sends a 403 Forbidden response. It takes as second argument
 	// the error that caused the forbidden response, and as third argument
 	// a message to be sent to the client. The error will be logged if a logger was provided.
-	Send403(http.ResponseWriter, error, string)
+	Send403(http.ResponseWriter, error, any)
 
 	// Send404 sends a 404 Not Found response. It takes as second argument
 	// the error that caused the not found response, and as third argument
 	// a message to be sent to the client. The error will be logged if a logger was provided.
-	Send404(http.ResponseWriter, error, string)
+	Send404(http.ResponseWriter, error, any)
 
 	// Send500 sends a 500 Internal Server Error response. It takes as second argument
 	// the error that caused the internal server error, and as third argument
 	// a message to be sent to the client. The error will be logged if a logger was provided.
-	Send500(http.ResponseWriter, error, string)
+	Send500(http.ResponseWriter, error, any)
 }
 
 func New(contentType string, optionsModifiers ...OptionsModifier) Responder {
 	options := &Options{
-		errorFormatter:   noopFormatter,
+		errorFormatter:   stringFormatter,
 		contentFormatter: contentFormatter,
 	}
 
@@ -212,17 +232,7 @@ func (h *responder) logError(err error, code int, message any) {
 		return
 	}
 
-	var m string
-	switch v := message.(type) {
-	case string:
-		m = v
-	case jsonError:
-		m = v.Error
-	default:
-		m = GenericErrorMessage
-	}
-
-	h.options.logger.Error(m, "status", code, "error", err)
+	h.options.logger.Error(MessageToString(message), "status", code, "error", err)
 }
 
 func (h *responder) Send200(w http.ResponseWriter, content any) {
@@ -257,35 +267,35 @@ func (h *responder) Redirect307(w http.ResponseWriter, r *http.Request, location
 	http.Redirect(w, r, location, status307)
 }
 
-func (h *responder) Send400(w http.ResponseWriter, err error, message string) {
+func (h *responder) Send400(w http.ResponseWriter, err error, message any) {
 	h.logError(err, status400, message)
 	h.send(w, status400, h.options.contentFormatter(
 		h.options.errorFormatter(message)),
 	)
 }
 
-func (h *responder) Send401(w http.ResponseWriter, err error, message string) {
+func (h *responder) Send401(w http.ResponseWriter, err error, message any) {
 	h.logError(err, status401, message)
 	h.send(w, status401, h.options.contentFormatter(
 		h.options.errorFormatter(message)),
 	)
 }
 
-func (h *responder) Send403(w http.ResponseWriter, err error, message string) {
+func (h *responder) Send403(w http.ResponseWriter, err error, message any) {
 	h.logError(err, status403, message)
 	h.send(w, status403, h.options.contentFormatter(
 		h.options.errorFormatter(message)),
 	)
 }
 
-func (h *responder) Send404(w http.ResponseWriter, err error, message string) {
+func (h *responder) Send404(w http.ResponseWriter, err error, message any) {
 	h.logError(err, status404, message)
 	h.send(w, status404, h.options.contentFormatter(
 		h.options.errorFormatter(message)),
 	)
 }
 
-func (h *responder) Send500(w http.ResponseWriter, err error, message string) {
+func (h *responder) Send500(w http.ResponseWriter, err error, message any) {
 	h.logError(err, status500, message)
 	h.send(w, status500, h.options.contentFormatter(
 		h.options.errorFormatter(message)),

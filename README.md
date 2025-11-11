@@ -4,9 +4,9 @@ A simple, flexible HTTP response handler for Go that provides a clean interface 
 
 ## Features
 
-- 🚀 Simple and intuitive API
-- 📝 Multiple content type support (JSON, HTML, CSV, Plain Text)
-- 🔧 Customizable error and content formatters
+- Simple and intuitive API
+- Multiple content type support (JSON, HTML, CSV, Plain Text, XML)
+- Customizable error and content formatters
 
 ## Installation
 
@@ -105,6 +105,120 @@ csvData := "name,age,city\nJohn,30,New York\nJane,25,London"
 resp.Send200(w, csvData)
 ```
 
+### XML Responder
+
+Sends XML responses with `application/xml; charset=utf-8` content type.
+
+```go
+resp := responder.XMLResponder()
+
+xmlData := `<?xml version="1.0" encoding="UTF-8"?>
+<user>
+    <name>John Doe</name>
+    <email>john@example.com</email>
+</user>`
+resp.Send200(w, xmlData)
+```
+
+## Message Types
+
+The error message parameter accepts `any` type, allowing you to pass various message formats:
+
+### String Messages
+
+```go
+resp.Send400(w, err, "Invalid email format")
+```
+
+### Error Messages
+
+```go
+resp.Send500(w, err, err) // Pass the error itself as the message
+```
+
+### Custom Struct Messages
+
+With a custom `ErrorFormatter`, you can pass structured error messages:
+
+```go
+type ErrorDetails struct {
+    Code    string
+    Message string
+    Field   string
+}
+
+customFormatter := func(message any) any {
+    switch v := message.(type) {
+    case ErrorDetails:
+        return fmt.Sprintf("Error %s: %s (field: %s)", v.Code, v.Message, v.Field)
+    case error:
+        return v.Error()
+    default:
+        return fmt.Sprint(message)
+    }
+}
+
+resp := responder.TextResponder(responder.WithErrorFormatter(customFormatter))
+
+// Pass a custom struct as the message
+resp.Send400(w, err, ErrorDetails{
+    Code:    "VALIDATION_001",
+    Message: "Invalid input",
+    Field:   "email",
+})
+```
+
+### JSON Error Messages
+
+For JSON responses with custom error structures:
+
+```go
+type JSONErrorResponse struct {
+    Code      string   `json:"code"`
+    Message   string   `json:"message"`
+    Details   []string `json:"details"`
+    Timestamp int64    `json:"timestamp"`
+}
+
+jsonContentFormatter := func(content any) []byte {
+    data, _ := json.Marshal(content)
+    return data
+}
+
+customFormatter := func(message any) any {
+    switch v := message.(type) {
+    case JSONErrorResponse:
+        return v
+    case error:
+        return JSONErrorResponse{
+            Code:      "ERROR",
+            Message:   v.Error(),
+            Timestamp: time.Now().Unix(),
+        }
+    default:
+        return JSONErrorResponse{
+            Code:      "ERROR",
+            Message:   fmt.Sprint(message),
+            Timestamp: time.Now().Unix(),
+        }
+    }
+}
+
+// Note: JSONResponder enforces {"error": "..."} format by default
+// For custom JSON error structures, use New() with JSONContentType
+resp := responder.New(responder.JSONContentType,
+    responder.WithContentFormatter(jsonContentFormatter),
+    responder.WithErrorFormatter(customFormatter),
+)
+
+resp.Send400(w, err, JSONErrorResponse{
+    Code:    "VALIDATION_ERROR",
+    Message: "Invalid request payload",
+    Details: []string{"email is required", "password too short"},
+    Timestamp: time.Now().Unix(),
+})
+```
+
 ## Customization
 
 ### With Logger
@@ -123,19 +237,36 @@ resp.Send500(w, err, "Database connection failed")
 
 ### Custom Error Formatter
 
-Customize how error messages are formatted:
+Customize how error messages are formatted. The formatter receives `any` type and returns `any` type:
 
 ```go
-customFormatter := func(message string) any {
-    return map[string]interface{}{
-        "error": message,
-        "timestamp": time.Now().Unix(),
-        "code": "ERR_001",
+customFormatter := func(message any) any {
+    // Handle different message types
+    switch v := message.(type) {
+    case string:
+        return map[string]interface{}{
+            "error":     v,
+            "timestamp": time.Now().Unix(),
+            "code":      "ERR_001",
+        }
+    case error:
+        return map[string]interface{}{
+            "error":     v.Error(),
+            "timestamp": time.Now().Unix(),
+            "code":      "ERR_002",
+        }
+    default:
+        return map[string]interface{}{
+            "error":     fmt.Sprint(v),
+            "timestamp": time.Now().Unix(),
+        }
     }
 }
 
 resp := responder.JSONResponder(responder.WithErrorFormatter(customFormatter))
 ```
+
+**Note:** `JSONResponder()` applies a default formatter that wraps messages in `{"error": "..."}` format. To use fully custom JSON error structures, create a responder with `responder.New()` instead.
 
 ### Custom Content Formatter
 

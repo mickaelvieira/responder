@@ -73,9 +73,9 @@ func TestJSONResponder(t *testing.T) {
 			return data
 		}
 
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return map[string]string{
-				"custom_error": message,
+				"custom_error": MessageToString(message),
 				"formatted":    "true",
 			}
 		}
@@ -255,6 +255,113 @@ func TestJSONResponder(t *testing.T) {
 			t.Errorf("expected data to be preserved with custom formatter")
 		}
 	})
+
+	t.Run("accepts custom message types", func(t *testing.T) {
+		jsonContentFormatter := func(content any) []byte {
+			data, _ := json.Marshal(content)
+			return data
+		}
+
+		type CustomErrorMessage struct {
+			Code    string
+			Message string
+			Details string
+		}
+
+		// JSONResponder enforces jsonError format, but MessageToString handles custom types
+		responder := JSONResponder(
+			WithContentFormatter(jsonContentFormatter),
+		)
+		w := httptest.NewRecorder()
+
+		// Pass custom struct - it will be converted to string by MessageToString
+		// which returns GenericErrorMessage for non-string/non-error/non-Stringer types
+		customMsg := CustomErrorMessage{
+			Code:    "VALIDATION_ERROR",
+			Message: "Invalid input provided",
+			Details: "Field 'email' must be a valid email address",
+		}
+
+		responder.Send400(w, errors.New("validation failed"), customMsg)
+
+		var result jsonError
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatalf("failed to unmarshal response: %v (body: %s)", err, w.Body.String())
+		}
+
+		// Since CustomErrorMessage doesn't implement String() or Error(),
+		// MessageToString returns GenericErrorMessage
+		if result.Error != GenericErrorMessage {
+			t.Errorf("expected error %q, got %q", GenericErrorMessage, result.Error)
+		}
+	})
+
+	t.Run("handles error type as message", func(t *testing.T) {
+		jsonContentFormatter := func(content any) []byte {
+			data, _ := json.Marshal(content)
+			return data
+		}
+
+		customFormatter := func(message any) any {
+			// If the message is an error, extract it
+			if err, ok := message.(error); ok {
+				return jsonError{Error: err.Error()}
+			}
+			return jsonError{Error: MessageToString(message)}
+		}
+
+		responder := JSONResponder(
+			WithContentFormatter(jsonContentFormatter),
+			WithErrorFormatter(customFormatter),
+		)
+		w := httptest.NewRecorder()
+
+		msgError := errors.New("database connection failed")
+		responder.Send500(w, msgError, msgError)
+
+		var result jsonError
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatalf("failed to unmarshal response: %v", err)
+		}
+
+		if result.Error != "database connection failed" {
+			t.Errorf("expected error %q, got %q", "database connection failed", result.Error)
+		}
+	})
+
+	t.Run("handles map type as message", func(t *testing.T) {
+		jsonContentFormatter := func(content any) []byte {
+			data, _ := json.Marshal(content)
+			return data
+		}
+
+		responder := JSONResponder(
+			WithContentFormatter(jsonContentFormatter),
+		)
+		w := httptest.NewRecorder()
+
+		// Pass a map - it will be converted to string by MessageToString
+		// which returns GenericErrorMessage for non-string/non-error/non-Stringer types
+		msgMap := map[string]interface{}{
+			"error":   "validation_failed",
+			"field":   "email",
+			"code":    400,
+			"details": []string{"invalid format", "required field"},
+		}
+
+		responder.Send400(w, errors.New("validation error"), msgMap)
+
+		var result jsonError
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatalf("failed to unmarshal response: %v", err)
+		}
+
+		// JSONResponder enforces jsonError format
+		// Map doesn't implement String() or Error(), so returns GenericErrorMessage
+		if result.Error != GenericErrorMessage {
+			t.Errorf("expected error %q, got %q", GenericErrorMessage, result.Error)
+		}
+	})
 }
 
 func TestTextResponder(t *testing.T) {
@@ -311,8 +418,8 @@ func TestTextResponder(t *testing.T) {
 	})
 
 	t.Run("applies custom error formatter", func(t *testing.T) {
-		customFormatter := func(message string) any {
-			return fmt.Sprintf("ERROR: %s", message)
+		customFormatter := func(message any) any {
+			return fmt.Sprintf("ERROR: %s", MessageToString(message))
 		}
 
 		responder := TextResponder(WithErrorFormatter(customFormatter))
@@ -444,7 +551,7 @@ func TestTextResponder(t *testing.T) {
 
 	t.Run("multiple option modifiers applied correctly", func(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf("[ERROR] %s", message)
 		}
 
@@ -493,6 +600,81 @@ func TestTextResponder(t *testing.T) {
 
 		if w.Code != http.StatusNoContent {
 			t.Errorf("expected status 204, got %d", w.Code)
+		}
+	})
+
+	t.Run("accepts custom message types with ErrorFormatter", func(t *testing.T) {
+		type CustomError struct {
+			Code    int
+			Message string
+		}
+
+		// Custom formatter that formats struct messages as text
+		customFormatter := func(message any) any {
+			switch v := message.(type) {
+			case CustomError:
+				return fmt.Sprintf("Error %d: %s", v.Code, v.Message)
+			case error:
+				return fmt.Sprintf("ERROR: %s", v.Error())
+			default:
+				return MessageToString(message)
+			}
+		}
+
+		responder := TextResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		customMsg := CustomError{
+			Code:    1001,
+			Message: "Database connection timeout",
+		}
+
+		responder.Send500(w, errors.New("db error"), customMsg)
+
+		expected := "Error 1001: Database connection timeout"
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
+
+	t.Run("handles error type as message", func(t *testing.T) {
+		customFormatter := func(message any) any {
+			if err, ok := message.(error); ok {
+				return fmt.Sprintf("Error occurred: %s", err.Error())
+			}
+			return MessageToString(message)
+		}
+
+		responder := TextResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		msgError := errors.New("authentication failed")
+		responder.Send401(w, msgError, msgError)
+
+		expected := "Error occurred: authentication failed"
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
+
+	t.Run("handles fmt.Stringer as message", func(t *testing.T) {
+		customFormatter := func(message any) any {
+			if stringer, ok := message.(fmt.Stringer); ok {
+				return stringer.String()
+			}
+			return MessageToString(message)
+		}
+
+		responder := TextResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		// Use an error (which implements fmt.Stringer) as the message
+		msg := errors.New("VALIDATION: invalid email format")
+		responder.Send400(w, msg, msg)
+
+		expected := "VALIDATION: invalid email format"
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
 		}
 	})
 }
@@ -551,7 +733,7 @@ func TestHTMLResponder(t *testing.T) {
 	})
 
 	t.Run("applies custom error formatter for HTML", func(t *testing.T) {
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf("<div class='error'>%s</div>", message)
 		}
 
@@ -724,7 +906,7 @@ func TestHTMLResponder(t *testing.T) {
 
 	t.Run("multiple option modifiers applied correctly", func(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf(`<div class="alert alert-error">
 				<h2>Error</h2>
 				<p>%s</p>
@@ -793,6 +975,70 @@ func TestHTMLResponder(t *testing.T) {
 			t.Errorf("expected body %q, got %q", htmlWithSpecialChars, w.Body.String())
 		}
 	})
+
+	t.Run("accepts custom message types with ErrorFormatter", func(t *testing.T) {
+		type HTMLError struct {
+			Title   string
+			Message string
+			Code    int
+		}
+
+		// Custom formatter that formats struct messages as HTML
+		customFormatter := func(message any) any {
+			switch v := message.(type) {
+			case HTMLError:
+				return fmt.Sprintf(`<div class="error">
+					<h3>%s</h3>
+					<p>%s</p>
+					<small>Error Code: %d</small>
+				</div>`, v.Title, v.Message, v.Code)
+			case error:
+				return fmt.Sprintf(`<div class="error"><p>%s</p></div>`, v.Error())
+			default:
+				return fmt.Sprintf(`<p>%s</p>`, MessageToString(message))
+			}
+		}
+
+		responder := HTMLResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		customMsg := HTMLError{
+			Title:   "Validation Error",
+			Message: "The email field is required",
+			Code:    4001,
+		}
+
+		responder.Send400(w, errors.New("validation"), customMsg)
+
+		expected := `<div class="error">
+					<h3>Validation Error</h3>
+					<p>The email field is required</p>
+					<small>Error Code: 4001</small>
+				</div>`
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
+
+	t.Run("handles error type as HTML message", func(t *testing.T) {
+		customFormatter := func(message any) any {
+			if err, ok := message.(error); ok {
+				return fmt.Sprintf(`<div class="alert alert-danger">%s</div>`, err.Error())
+			}
+			return MessageToString(message)
+		}
+
+		responder := HTMLResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		msgError := errors.New("resource not found")
+		responder.Send404(w, msgError, msgError)
+
+		expected := `<div class="alert alert-danger">resource not found</div>`
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
 }
 
 func TestCSVResponder(t *testing.T) {
@@ -849,7 +1095,7 @@ func TestCSVResponder(t *testing.T) {
 	})
 
 	t.Run("applies custom error formatter", func(t *testing.T) {
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf("error\n%s", message)
 		}
 
@@ -1017,7 +1263,7 @@ Alice Brown,28,Sydney,Australia`
 
 	t.Run("multiple option modifiers applied correctly", func(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf("error_type,message\ndata_error,%s", message)
 		}
 
@@ -1120,6 +1366,62 @@ Bob,"Special chars: @#$%^&*()"`
 			t.Errorf("expected body %q, got %q", csvContent, w.Body.String())
 		}
 	})
+
+	t.Run("accepts custom message types with ErrorFormatter", func(t *testing.T) {
+		type CSVError struct {
+			ErrorType string
+			Row       int
+			Column    string
+		}
+
+		// Custom formatter that formats struct messages as CSV
+		customFormatter := func(message any) any {
+			switch v := message.(type) {
+			case CSVError:
+				return fmt.Sprintf("error_type,row,column\n%s,%d,%s", v.ErrorType, v.Row, v.Column)
+			case error:
+				return fmt.Sprintf("error\n%s", v.Error())
+			default:
+				return MessageToString(message)
+			}
+		}
+
+		responder := CSVResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		customMsg := CSVError{
+			ErrorType: "INVALID_FORMAT",
+			Row:       42,
+			Column:    "email",
+		}
+
+		responder.Send400(w, errors.New("csv error"), customMsg)
+
+		expected := "error_type,row,column\nINVALID_FORMAT,42,email"
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
+
+	t.Run("handles error type as CSV message", func(t *testing.T) {
+		customFormatter := func(message any) any {
+			if err, ok := message.(error); ok {
+				return fmt.Sprintf("status,message\nerror,%s", err.Error())
+			}
+			return MessageToString(message)
+		}
+
+		responder := CSVResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		msgError := errors.New("data processing failed")
+		responder.Send500(w, msgError, msgError)
+
+		expected := "status,message\nerror,data processing failed"
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
 }
 
 func TestXMLResponder(t *testing.T) {
@@ -1188,7 +1490,7 @@ func TestXMLResponder(t *testing.T) {
 	})
 
 	t.Run("applies custom error formatter", func(t *testing.T) {
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf("<error><message>%s</message></error>", message)
 		}
 
@@ -1355,7 +1657,7 @@ func TestXMLResponder(t *testing.T) {
 
 	t.Run("multiple option modifiers applied correctly", func(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-		customFormatter := func(message string) any {
+		customFormatter := func(message any) any {
 			return fmt.Sprintf(`<?xml version="1.0"?>
 <error>
 	<type>system</type>
@@ -1448,6 +1750,78 @@ func TestXMLResponder(t *testing.T) {
 
 		if w.Body.String() != xmlContent {
 			t.Errorf("expected body %q, got %q", xmlContent, w.Body.String())
+		}
+	})
+
+	t.Run("accepts custom message types with ErrorFormatter", func(t *testing.T) {
+		type XMLError struct {
+			Code    string
+			Message string
+			Details string
+		}
+
+		// Custom formatter that formats struct messages as XML
+		customFormatter := func(message any) any {
+			switch v := message.(type) {
+			case XMLError:
+				return fmt.Sprintf(`<error>
+	<code>%s</code>
+	<message>%s</message>
+	<details>%s</details>
+</error>`, v.Code, v.Message, v.Details)
+			case error:
+				return fmt.Sprintf(`<error><message>%s</message></error>`, v.Error())
+			default:
+				return fmt.Sprintf(`<message>%s</message>`, MessageToString(message))
+			}
+		}
+
+		responder := XMLResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		customMsg := XMLError{
+			Code:    "AUTH_FAILED",
+			Message: "Authentication required",
+			Details: "Token has expired",
+		}
+
+		responder.Send401(w, errors.New("auth error"), customMsg)
+
+		expected := `<error>
+	<code>AUTH_FAILED</code>
+	<message>Authentication required</message>
+	<details>Token has expired</details>
+</error>`
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
+		}
+	})
+
+	t.Run("handles error type as XML message", func(t *testing.T) {
+		customFormatter := func(message any) any {
+			if err, ok := message.(error); ok {
+				return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<error>
+	<message>%s</message>
+	<timestamp>2025-11-10T12:00:00Z</timestamp>
+</error>`, err.Error())
+			}
+			return MessageToString(message)
+		}
+
+		responder := XMLResponder(WithErrorFormatter(customFormatter))
+		w := httptest.NewRecorder()
+
+		msgError := errors.New("service unavailable")
+		responder.Send500(w, msgError, msgError)
+
+		expected := `<?xml version="1.0" encoding="UTF-8"?>
+<error>
+	<message>service unavailable</message>
+	<timestamp>2025-11-10T12:00:00Z</timestamp>
+</error>`
+		if w.Body.String() != expected {
+			t.Errorf("expected body %q, got %q", expected, w.Body.String())
 		}
 	})
 }
