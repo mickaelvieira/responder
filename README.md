@@ -1,4 +1,4 @@
-# Responder [![Go Reference](https://pkg.go.dev/badge/github.com/mickaelvieira/responder.svg)](https://pkg.go.dev/github.com/mickaelvieira/responder)
+# Responder [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Go Reference](https://pkg.go.dev/badge/github.com/mickaelvieira/responder.svg)](https://pkg.go.dev/github.com/mickaelvieira/responder)
 
 A simple, flexible HTTP response handler for Go that provides a clean interface for sending various types of HTTP responses.
 
