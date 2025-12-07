@@ -1,6 +1,7 @@
 package responder
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -21,7 +22,7 @@ func TestContentFormatter(t *testing.T) {
 		result := contentFormatter(input)
 		expected := []byte(input)
 
-		if string(result) != string(expected) {
+		if !bytes.Equal(result, expected) {
 			t.Errorf("expected %q, got %q", string(expected), string(result))
 		}
 	})
@@ -30,7 +31,7 @@ func TestContentFormatter(t *testing.T) {
 		input := ""
 		result := contentFormatter(input)
 
-		if string(result) != "" {
+		if len(result) != 0 {
 			t.Errorf("expected empty string, got %q", string(result))
 		}
 	})
@@ -39,7 +40,7 @@ func TestContentFormatter(t *testing.T) {
 		input := []byte("byte content")
 		result := contentFormatter(input)
 
-		if string(result) != string(input) {
+		if !bytes.Equal(result, input) {
 			t.Errorf("expected %q, got %q", string(input), string(result))
 		}
 	})
@@ -176,6 +177,7 @@ func TestContentFormatter(t *testing.T) {
 					if err := json.Unmarshal(result, &num); err != nil {
 						t.Fatalf("failed to unmarshal: %v", err)
 					}
+
 					if num != 42 {
 						t.Errorf("expected 42, got %d", num)
 					}
@@ -189,6 +191,7 @@ func TestContentFormatter(t *testing.T) {
 					if err := json.Unmarshal(result, &f); err != nil {
 						t.Fatalf("failed to unmarshal: %v", err)
 					}
+
 					if f != 3.14 {
 						t.Errorf("expected 3.14, got %f", f)
 					}
@@ -202,6 +205,7 @@ func TestContentFormatter(t *testing.T) {
 					if err := json.Unmarshal(result, &b); err != nil {
 						t.Fatalf("failed to unmarshal: %v", err)
 					}
+
 					if !b {
 						t.Errorf("expected true, got false")
 					}
@@ -215,6 +219,7 @@ func TestContentFormatter(t *testing.T) {
 					if err := json.Unmarshal(result, &slice); err != nil {
 						t.Fatalf("failed to unmarshal: %v", err)
 					}
+
 					if len(slice) != 3 || slice[0] != "a" || slice[1] != "b" || slice[2] != "c" {
 						t.Errorf("unexpected slice content: %v", slice)
 					}
@@ -228,6 +233,7 @@ func TestContentFormatter(t *testing.T) {
 					if err := json.Unmarshal(result, &m); err != nil {
 						t.Fatalf("failed to unmarshal: %v", err)
 					}
+
 					if m["key"] != 1 || m["another"] != 2 {
 						t.Errorf("unexpected map content: %v", m)
 					}
@@ -241,6 +247,7 @@ func TestContentFormatter(t *testing.T) {
 					if err := json.Unmarshal(result, &s); err != nil {
 						t.Fatalf("failed to unmarshal: %v", err)
 					}
+
 					if s.X != 10 {
 						t.Errorf("expected X=10, got X=%d", s.X)
 					}
@@ -269,6 +276,7 @@ func TestContentFormatter(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				result := contentFormatter(tc.input)
+
 				expectedPrefix := "received invalid content"
 				if !strings.Contains(string(result), expectedPrefix) {
 					t.Errorf("expected error message for %s, got %q", tc.name, string(result))
@@ -283,6 +291,7 @@ func TestContentFormatter(t *testing.T) {
 		for i := 0; i < 10000; i++ {
 			builder.WriteString("Lorem ipsum dolor sit amet. ")
 		}
+
 		input := builder.String()
 
 		result := contentFormatter(input)
@@ -363,12 +372,15 @@ func (c customXMLMarshaler) MarshalXML(e *xml.Encoder, start xml.StartElement) e
 	if err := e.EncodeToken(start); err != nil {
 		return err
 	}
+
 	if err := e.EncodeElement(c.Name, xml.StartElement{Name: xml.Name{Local: "name"}}); err != nil {
 		return err
 	}
+
 	if err := e.EncodeElement(c.Value, xml.StartElement{Name: xml.Name{Local: "value"}}); err != nil {
 		return err
 	}
+
 	return e.EncodeToken(start.End())
 }
 

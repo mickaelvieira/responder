@@ -26,6 +26,7 @@ func TestJSONResponder(t *testing.T) {
 		responder.Send200(w, map[string]string{"message": "success"})
 
 		contentType := w.Header().Get("Content-Type")
+
 		expected := JSONContentType
 		if contentType != expected {
 			t.Errorf("expected Content-Type %q, got %q", expected, contentType)
@@ -39,6 +40,7 @@ func TestJSONResponder(t *testing.T) {
 			if err != nil {
 				return []byte(fmt.Sprintf("marshal error: %v", err))
 			}
+
 			return data
 		}
 
@@ -218,9 +220,11 @@ func TestJSONResponder(t *testing.T) {
 		if result.Message != expected.Message {
 			t.Errorf("expected message %q, got %q", expected.Message, result.Message)
 		}
+
 		if result.Data["count"] != expected.Data["count"] {
 			t.Errorf("expected count %d, got %d", expected.Data["count"], result.Data["count"])
 		}
+
 		if len(result.Tags) != len(expected.Tags) {
 			t.Errorf("expected %d tags, got %d", len(expected.Tags), len(result.Tags))
 		}
@@ -307,6 +311,7 @@ func TestJSONResponder(t *testing.T) {
 			if err, ok := message.(error); ok {
 				return jsonError{Error: err.Error()}
 			}
+
 			return jsonError{Error: MessageToString(message)}
 		}
 
@@ -378,6 +383,7 @@ func TestTextResponder(t *testing.T) {
 		responder.Send200(w, "plain text response")
 
 		contentType := w.Header().Get("Content-Type")
+
 		expected := TextContentType
 		if contentType != expected {
 			t.Errorf("expected Content-Type %q, got %q", expected, contentType)
@@ -642,6 +648,7 @@ func TestTextResponder(t *testing.T) {
 			if err, ok := message.(error); ok {
 				return fmt.Sprintf("Error occurred: %s", err.Error())
 			}
+
 			return MessageToString(message)
 		}
 
@@ -662,6 +669,7 @@ func TestTextResponder(t *testing.T) {
 			if stringer, ok := message.(fmt.Stringer); ok {
 				return stringer.String()
 			}
+
 			return MessageToString(message)
 		}
 
@@ -693,6 +701,7 @@ func TestHTMLResponder(t *testing.T) {
 		responder.Send200(w, "<html><body>Hello</body></html>")
 
 		contentType := w.Header().Get("Content-Type")
+
 		expected := HTMLContentType
 		if contentType != expected {
 			t.Errorf("expected Content-Type %q, got %q", expected, contentType)
@@ -1025,6 +1034,7 @@ func TestHTMLResponder(t *testing.T) {
 			if err, ok := message.(error); ok {
 				return fmt.Sprintf(`<div class="alert alert-danger">%s</div>`, err.Error())
 			}
+
 			return MessageToString(message)
 		}
 
@@ -1055,6 +1065,7 @@ func TestCSVResponder(t *testing.T) {
 		responder.Send200(w, "name,age\nJohn,30\nJane,25")
 
 		contentType := w.Header().Get("Content-Type")
+
 		expected := CSVContentType
 		if contentType != expected {
 			t.Errorf("expected Content-Type %q, got %q", expected, contentType)
@@ -1334,9 +1345,11 @@ desk,"furniture,office"`
 		// Build a large CSV
 		var csvBuilder strings.Builder
 		csvBuilder.WriteString("id,timestamp,value,status\n")
+
 		for i := 1; i <= 1000; i++ {
 			csvBuilder.WriteString(fmt.Sprintf("%d,2025-11-10T12:00:%02d,%.2f,active\n", i, i%60, float64(i)*1.5))
 		}
+
 		csvContent := csvBuilder.String()
 
 		responder.Send200(w, csvContent)
@@ -1408,6 +1421,7 @@ Bob,"Special chars: @#$%^&*()"`
 			if err, ok := message.(error); ok {
 				return fmt.Sprintf("status,message\nerror,%s", err.Error())
 			}
+
 			return MessageToString(message)
 		}
 
@@ -1438,6 +1452,7 @@ func TestXMLResponder(t *testing.T) {
 		responder.Send200(w, "<root><message>success</message></root>")
 
 		contentType := w.Header().Get("Content-Type")
+
 		expected := XMLContentType
 		if contentType != expected {
 			t.Errorf("expected Content-Type %q, got %q", expected, contentType)
@@ -1806,6 +1821,7 @@ func TestXMLResponder(t *testing.T) {
 	<timestamp>2025-11-10T12:00:00Z</timestamp>
 </error>`, err.Error())
 			}
+
 			return MessageToString(message)
 		}
 

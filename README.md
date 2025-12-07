@@ -63,7 +63,7 @@ Sends responses with `application/json; charset=utf-8` content type. Error messa
 resp := responder.JSONResponder()
 
 // Success response
-resp.Send200(w, map[string]interface{}{
+resp.Send200(w, map[string]any{
     "message": "Success",
     "data": []string{"item1", "item2"},
 })
@@ -244,19 +244,19 @@ customFormatter := func(message any) any {
     // Handle different message types
     switch v := message.(type) {
     case string:
-        return map[string]interface{}{
+        return map[string]any{
             "error":     v,
             "timestamp": time.Now().Unix(),
             "code":      "ERR_001",
         }
     case error:
-        return map[string]interface{}{
+        return map[string]any{
             "error":     v.Error(),
             "timestamp": time.Now().Unix(),
             "code":      "ERR_002",
         }
     default:
-        return map[string]interface{}{
+        return map[string]any{
             "error":     fmt.Sprint(v),
             "timestamp": time.Now().Unix(),
         }

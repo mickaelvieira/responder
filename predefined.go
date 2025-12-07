@@ -14,8 +14,12 @@ func jsonFormatter(message any) any {
 // The Content-Type will be set to application/json with UTF-8 charset
 // and the message will be formatted as a JSON error object { "error": string }.
 func JSONResponder(options ...OptionsModifier) Responder {
-	options = append(options, WithErrorFormatter(jsonFormatter))
-	return New(JSONContentType, options...)
+	var o []OptionsModifier
+
+	o = append(o, options...)
+	o = append(o, WithErrorFormatter(jsonFormatter))
+
+	return New(JSONContentType, o...)
 }
 
 // TextResponder creates a new text responder.
