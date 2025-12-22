@@ -1,12 +1,14 @@
 package responder
 
+import "github.com/mickaelvieira/responder/internal"
+
 type jsonError struct {
 	Error string `json:"error"`
 }
 
 func jsonFormatter(message any) any {
 	return jsonError{
-		Error: MessageToString(message),
+		Error: internal.MessageToString(message),
 	}
 }
 

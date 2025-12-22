@@ -11,7 +11,7 @@ import (
 
 func TestContentFormatter(t *testing.T) {
 	t.Run("handles nil content", func(t *testing.T) {
-		result := contentFormatter(nil)
+		result := defaultDataFormatter(nil)
 		if len(result) != 0 {
 			t.Errorf("expected empty byte slice for nil, got %v", result)
 		}
@@ -19,7 +19,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles string content", func(t *testing.T) {
 		input := "Hello, World!"
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 		expected := []byte(input)
 
 		if !bytes.Equal(result, expected) {
@@ -29,7 +29,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles empty string content", func(t *testing.T) {
 		input := ""
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		if len(result) != 0 {
 			t.Errorf("expected empty string, got %q", string(result))
@@ -38,7 +38,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles byte slice content", func(t *testing.T) {
 		input := []byte("byte content")
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		if !bytes.Equal(result, input) {
 			t.Errorf("expected %q, got %q", string(input), string(result))
@@ -47,7 +47,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles empty byte slice", func(t *testing.T) {
 		input := []byte{}
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		if len(result) != 0 {
 			t.Errorf("expected empty byte slice, got %v", result)
@@ -61,7 +61,7 @@ func TestContentFormatter(t *testing.T) {
 		}
 
 		input := CustomJSON{Name: "test", Value: 42}
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		// Now it should successfully marshal via the default case
 		var parsed CustomJSON
@@ -77,7 +77,7 @@ func TestContentFormatter(t *testing.T) {
 	t.Run("handles struct implementing json.Marshaler", func(t *testing.T) {
 		// Create a proper json.Marshaler
 		marshaler := customJSONMarshaler{value: "custom_value"}
-		result := contentFormatter(marshaler)
+		result := defaultDataFormatter(marshaler)
 
 		var parsed map[string]string
 		if err := json.Unmarshal(result, &parsed); err != nil {
@@ -91,7 +91,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles json.Marshaler with error", func(t *testing.T) {
 		marshaler := errorJSONMarshaler{}
-		result := contentFormatter(marshaler)
+		result := defaultDataFormatter(marshaler)
 
 		expectedPrefix := "received invalid content"
 		if !strings.Contains(string(result), expectedPrefix) {
@@ -101,7 +101,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles xml.Marshaler implementation", func(t *testing.T) {
 		marshaler := customXMLMarshaler{Name: "test", Value: 42}
-		result := contentFormatter(marshaler)
+		result := defaultDataFormatter(marshaler)
 
 		// Verify it was marshaled as XML
 		var parsed customXMLMarshaler
@@ -116,7 +116,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles xml.Marshaler with error", func(t *testing.T) {
 		marshaler := errorXMLMarshaler{}
-		result := contentFormatter(marshaler)
+		result := defaultDataFormatter(marshaler)
 
 		expectedPrefix := "received invalid content"
 		if !strings.Contains(string(result), expectedPrefix) {
@@ -126,7 +126,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles encoding.TextMarshaler implementation", func(t *testing.T) {
 		marshaler := customTextMarshaler{value: "text_value"}
-		result := contentFormatter(marshaler)
+		result := defaultDataFormatter(marshaler)
 
 		expected := "TEXT:text_value"
 		if string(result) != expected {
@@ -136,7 +136,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("handles encoding.TextMarshaler with error", func(t *testing.T) {
 		marshaler := errorTextMarshaler{}
-		result := contentFormatter(marshaler)
+		result := defaultDataFormatter(marshaler)
 
 		expectedPrefix := "received invalid content"
 		if !strings.Contains(string(result), expectedPrefix) {
@@ -150,7 +150,7 @@ func TestContentFormatter(t *testing.T) {
 		}
 
 		input := SimpleStruct{Field: "value"}
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		// Should now successfully marshal via the default case
 		var parsed SimpleStruct
@@ -257,7 +257,7 @@ func TestContentFormatter(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				result := contentFormatter(tc.input)
+				result := defaultDataFormatter(tc.input)
 				tc.validate(t, result)
 			})
 		}
@@ -275,7 +275,7 @@ func TestContentFormatter(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
-				result := contentFormatter(tc.input)
+				result := defaultDataFormatter(tc.input)
 
 				expectedPrefix := "received invalid content"
 				if !strings.Contains(string(result), expectedPrefix) {
@@ -294,7 +294,7 @@ func TestContentFormatter(t *testing.T) {
 
 		input := builder.String()
 
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		if string(result) != input {
 			t.Errorf("large string content mismatch: expected %d bytes, got %d bytes",
@@ -309,7 +309,7 @@ func TestContentFormatter(t *testing.T) {
 			input[i] = byte(i % 256)
 		}
 
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		if len(result) != len(input) {
 			t.Errorf("expected %d bytes, got %d bytes", len(input), len(result))
@@ -318,7 +318,7 @@ func TestContentFormatter(t *testing.T) {
 
 	t.Run("preserves byte slice reference", func(t *testing.T) {
 		input := []byte("test")
-		result := contentFormatter(input)
+		result := defaultDataFormatter(input)
 
 		// Modify the result and check if input is affected
 		result[0] = 'X'

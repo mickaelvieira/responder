@@ -12,12 +12,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+
+	"github.com/mickaelvieira/responder/internal"
 )
 
 type responseWriter http.ResponseWriter
-
-// GenericErrorMessage is the default message used when an error message
-const GenericErrorMessage = "an error occurred"
 
 const (
 	// TextContentType is the content type for plain text responses
@@ -48,8 +47,8 @@ const (
 	status500 = http.StatusInternalServerError
 )
 
-//nolint:revive // it is not that bad
-func contentFormatter(c any) []byte {
+//nolint:revive // revive complains about the cognitive-complexity but to be fair, it is not that hard to read.
+func defaultDataFormatter(c any) []byte {
 	if c == nil {
 		return []byte{}
 	}
@@ -91,73 +90,55 @@ func contentFormatter(c any) []byte {
 	}
 }
 
-// MessageToString converts an error message of any type to a string.
-// If the message is a string, it is returned as is.
-// If the message implements fmt.Stringer, its String() method is called.
-// If the message is an error, its Error() method is called.
-// For any other type, a generic error message is returned.
-func MessageToString(message any) string {
-	switch v := message.(type) {
-	case string:
-		return v
-	case fmt.Stringer:
-		return v.String()
-	case error:
-		return v.Error()
-	default:
-		return GenericErrorMessage
-	}
-}
-
 // ErrorFormatter defines a function type for formatting error messages
 // before sending them in the response.
 // It receives the original error message as any type and returns
 // the formatted message as an any type.
-// The output of this function is passed to the ContentFormatter.
+// The output of this function is passed to the DataFormatter.
 // The default error formatter converts the message to a string.
 type ErrorFormatter func(any) any
 
-// ContentFormatter defines a function type for formatting
-// the content before sending it in the response.
-// It receives the original content as an any type and returns
-// the formatted content as a []byte.
-type ContentFormatter func(any) []byte
+// DataFormatter defines a function type for formatting
+// the data before sending it in the response.
+// It receives the original data as an any type and returns
+// the formatted data as a []byte.
+type DataFormatter func(any) []byte
 
 // stringFormatter is the default error formatter that converts
 // the error message to a string.
 var stringFormatter = func(message any) any {
-	return MessageToString(message)
+	return internal.MessageToString(message)
 }
 
 // OptionsModifier defines a function type for modifying Responder options.
-type OptionsModifier func(*Options)
+type OptionsModifier func(*options)
 
 // WithLogger sets a logger for the responder
 func WithLogger(l *slog.Logger) OptionsModifier {
-	return func(o *Options) {
+	return func(o *options) {
 		o.logger = l
 	}
 }
 
-// WithContentFormatter sets a custom content formatter
-func WithContentFormatter(f ContentFormatter) OptionsModifier {
-	return func(o *Options) {
-		o.contentFormatter = f
+// WithDataFormatter sets a custom data formatter
+func WithDataFormatter(f DataFormatter) OptionsModifier {
+	return func(o *options) {
+		o.dataFormatter = f
 	}
 }
 
 // WithErrorFormatter sets a custom error message formatter
 func WithErrorFormatter(f ErrorFormatter) OptionsModifier {
-	return func(o *Options) {
+	return func(o *options) {
 		o.errorFormatter = f
 	}
 }
 
-// Options holds the configuration options for the Responder.
-type Options struct {
-	logger           *slog.Logger
-	errorFormatter   ErrorFormatter
-	contentFormatter ContentFormatter
+// options holds the configuration options for the Responder.
+type options struct {
+	logger         *slog.Logger
+	dataFormatter  DataFormatter
+	errorFormatter ErrorFormatter
 }
 
 // Responder defines the interface for sending HTTP responses.
@@ -219,36 +200,39 @@ type Responder interface {
 	// a message to be sent to the client.
 	// The error will be logged if a logger was provided.
 	Send500(responseWriter, error, any)
+
+	// Send sends a response with the given status code and body.
+	Send(responseWriter, Response)
 }
 
 // New creates a new Responder with the given content type and options.
 func New(contentType string, optionsModifiers ...OptionsModifier) Responder {
-	options := &Options{
-		errorFormatter:   stringFormatter,
-		contentFormatter: contentFormatter,
+	o := &options{
+		errorFormatter: stringFormatter,
+		dataFormatter:  defaultDataFormatter,
 	}
 
 	for _, modify := range optionsModifiers {
-		modify(options)
+		modify(o)
 	}
 
 	return &responder{
 		contentType: contentType,
-		options:     options,
+		options:     o,
 	}
 }
 
 type responder struct {
 	contentType string
-	options     *Options
+	options     *options
 }
 
-func (r responder) send(rw responseWriter, code int, content []byte) {
+func (r responder) send(rw responseWriter, code int, body []byte) {
 	rw.Header().Set("Content-Type", r.contentType)
-	rw.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)))
+	rw.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
 	rw.WriteHeader(code)
 
-	_, err := rw.Write(content)
+	_, err := rw.Write(body)
 	if err != nil && r.options.logger != nil {
 		r.options.logger.Error("failed to write response",
 			"status", code,
@@ -262,26 +246,45 @@ func (r *responder) logError(err error, code int, message any) {
 		return
 	}
 
-	r.options.logger.Error(MessageToString(message),
+	r.options.logger.Error(internal.MessageToString(message),
 		"status", code,
 		"error", err,
 	)
 }
 
-func (r *responder) Send200(rw responseWriter, content any) {
-	r.send(rw, status200, r.options.contentFormatter(content))
+func (r *responder) Send(rw responseWriter, resp Response) {
+	switch v := resp.(type) {
+	case ErrorResponse:
+		r.logError(v.err, v.status, v.message)
+		r.send(rw, resp.Status(), r.options.dataFormatter(
+			r.options.errorFormatter(v.message),
+		))
+	case SuccessResponse:
+		r.send(rw, resp.Status(), r.options.dataFormatter(
+			v.body,
+		))
+	default:
+		r.logError(fmt.Errorf("unknown response type %T", resp),
+			resp.Status(),
+			"failed to send response",
+		)
+	}
 }
 
-func (r *responder) Send201(rw responseWriter, content any) {
-	r.send(rw, status201, r.options.contentFormatter(content))
+func (r *responder) Send200(rw responseWriter, data any) {
+	r.send(rw, status200, r.options.dataFormatter(data))
 }
 
-func (r *responder) Send202(rw responseWriter, content any) {
-	r.send(rw, status202, r.options.contentFormatter(content))
+func (r *responder) Send201(rw responseWriter, data any) {
+	r.send(rw, status201, r.options.dataFormatter(data))
+}
+
+func (r *responder) Send202(rw responseWriter, data any) {
+	r.send(rw, status202, r.options.dataFormatter(data))
 }
 
 func (r *responder) Send204(rw responseWriter) {
-	r.send(rw, status204, r.options.contentFormatter(nil))
+	r.send(rw, status204, r.options.dataFormatter(nil))
 }
 
 func (responder) Redirect301(rw responseWriter, req *http.Request, loc string) {
@@ -302,35 +305,35 @@ func (responder) Redirect307(rw responseWriter, req *http.Request, loc string) {
 
 func (r *responder) Send400(rw responseWriter, err error, message any) {
 	r.logError(err, status400, message)
-	r.send(rw, status400, r.options.contentFormatter(
+	r.send(rw, status400, r.options.dataFormatter(
 		r.options.errorFormatter(message)),
 	)
 }
 
 func (r *responder) Send401(rw responseWriter, err error, message any) {
 	r.logError(err, status401, message)
-	r.send(rw, status401, r.options.contentFormatter(
+	r.send(rw, status401, r.options.dataFormatter(
 		r.options.errorFormatter(message)),
 	)
 }
 
 func (r *responder) Send403(rw responseWriter, err error, message any) {
 	r.logError(err, status403, message)
-	r.send(rw, status403, r.options.contentFormatter(
+	r.send(rw, status403, r.options.dataFormatter(
 		r.options.errorFormatter(message)),
 	)
 }
 
 func (r *responder) Send404(rw responseWriter, err error, message any) {
 	r.logError(err, status404, message)
-	r.send(rw, status404, r.options.contentFormatter(
+	r.send(rw, status404, r.options.dataFormatter(
 		r.options.errorFormatter(message)),
 	)
 }
 
 func (r *responder) Send500(rw responseWriter, err error, message any) {
 	r.logError(err, status500, message)
-	r.send(rw, status500, r.options.contentFormatter(
+	r.send(rw, status500, r.options.dataFormatter(
 		r.options.errorFormatter(message)),
 	)
 }

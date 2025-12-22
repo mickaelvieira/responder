@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/mickaelvieira/responder/internal"
 )
 
 func TestJSONResponder(t *testing.T) {
@@ -44,7 +46,7 @@ func TestJSONResponder(t *testing.T) {
 			return data
 		}
 
-		responder := JSONResponder(WithContentFormatter(jsonContentFormatter))
+		responder := JSONResponder(WithDataFormatter(jsonContentFormatter))
 		w := httptest.NewRecorder()
 		errorMessage := "validation failed"
 
@@ -77,13 +79,13 @@ func TestJSONResponder(t *testing.T) {
 
 		customFormatter := func(message any) any {
 			return map[string]string{
-				"custom_error": MessageToString(message),
+				"custom_error": internal.MessageToString(message),
 				"formatted":    "true",
 			}
 		}
 
 		// JSONResponder always applies jsonFormatter last, so it overrides custom formatters
-		responder := JSONResponder(WithContentFormatter(jsonContentFormatter), WithErrorFormatter(customFormatter))
+		responder := JSONResponder(WithDataFormatter(jsonContentFormatter), WithErrorFormatter(customFormatter))
 		w := httptest.NewRecorder()
 
 		responder.Send400(w, errors.New("test"), "validation error")
@@ -201,7 +203,7 @@ func TestJSONResponder(t *testing.T) {
 			Tags    []string       `json:"tags"`
 		}
 
-		responder := JSONResponder(WithContentFormatter(jsonContentFormatter))
+		responder := JSONResponder(WithDataFormatter(jsonContentFormatter))
 		w := httptest.NewRecorder()
 
 		expected := Response{
@@ -240,7 +242,7 @@ func TestJSONResponder(t *testing.T) {
 
 		responder := JSONResponder(
 			WithLogger(logger),
-			WithContentFormatter(customContentFormatter),
+			WithDataFormatter(customContentFormatter),
 		)
 
 		w := httptest.NewRecorder()
@@ -274,12 +276,12 @@ func TestJSONResponder(t *testing.T) {
 
 		// JSONResponder enforces jsonError format, but MessageToString handles custom types
 		responder := JSONResponder(
-			WithContentFormatter(jsonContentFormatter),
+			WithDataFormatter(jsonContentFormatter),
 		)
 		w := httptest.NewRecorder()
 
 		// Pass custom struct - it will be converted to string by MessageToString
-		// which returns GenericErrorMessage for non-string/non-error/non-Stringer types
+		// which returns internal.GenericErrorMessage for non-string/non-error/non-Stringer types
 		customMsg := CustomErrorMessage{
 			Code:    "VALIDATION_ERROR",
 			Message: "Invalid input provided",
@@ -294,9 +296,9 @@ func TestJSONResponder(t *testing.T) {
 		}
 
 		// Since CustomErrorMessage doesn't implement String() or Error(),
-		// MessageToString returns GenericErrorMessage
-		if result.Error != GenericErrorMessage {
-			t.Errorf("expected error %q, got %q", GenericErrorMessage, result.Error)
+		// MessageToString returns internal.GenericErrorMessage
+		if result.Error != internal.GenericErrorMessage {
+			t.Errorf("expected error %q, got %q", internal.GenericErrorMessage, result.Error)
 		}
 	})
 
@@ -312,11 +314,11 @@ func TestJSONResponder(t *testing.T) {
 				return jsonError{Error: err.Error()}
 			}
 
-			return jsonError{Error: MessageToString(message)}
+			return jsonError{Error: internal.MessageToString(message)}
 		}
 
 		responder := JSONResponder(
-			WithContentFormatter(jsonContentFormatter),
+			WithDataFormatter(jsonContentFormatter),
 			WithErrorFormatter(customFormatter),
 		)
 		w := httptest.NewRecorder()
@@ -341,12 +343,12 @@ func TestJSONResponder(t *testing.T) {
 		}
 
 		responder := JSONResponder(
-			WithContentFormatter(jsonContentFormatter),
+			WithDataFormatter(jsonContentFormatter),
 		)
 		w := httptest.NewRecorder()
 
 		// Pass a map - it will be converted to string by MessageToString
-		// which returns GenericErrorMessage for non-string/non-error/non-Stringer types
+		// which returns internal.GenericErrorMessage for non-string/non-error/non-Stringer types
 		msgMap := map[string]interface{}{
 			"error":   "validation_failed",
 			"field":   "email",
@@ -362,9 +364,9 @@ func TestJSONResponder(t *testing.T) {
 		}
 
 		// JSONResponder enforces jsonError format
-		// Map doesn't implement String() or Error(), so returns GenericErrorMessage
-		if result.Error != GenericErrorMessage {
-			t.Errorf("expected error %q, got %q", GenericErrorMessage, result.Error)
+		// Map doesn't implement String() or Error(), so returns internal.GenericErrorMessage
+		if result.Error != internal.GenericErrorMessage {
+			t.Errorf("expected error %q, got %q", internal.GenericErrorMessage, result.Error)
 		}
 	})
 }
@@ -425,7 +427,7 @@ func TestTextResponder(t *testing.T) {
 
 	t.Run("applies custom error formatter", func(t *testing.T) {
 		customFormatter := func(message any) any {
-			return fmt.Sprintf("ERROR: %s", MessageToString(message))
+			return fmt.Sprintf("ERROR: %s", internal.MessageToString(message))
 		}
 
 		responder := TextResponder(WithErrorFormatter(customFormatter))
@@ -623,7 +625,7 @@ func TestTextResponder(t *testing.T) {
 			case error:
 				return fmt.Sprintf("ERROR: %s", v.Error())
 			default:
-				return MessageToString(message)
+				return internal.MessageToString(message)
 			}
 		}
 
@@ -649,7 +651,7 @@ func TestTextResponder(t *testing.T) {
 				return fmt.Sprintf("Error occurred: %s", err.Error())
 			}
 
-			return MessageToString(message)
+			return internal.MessageToString(message)
 		}
 
 		responder := TextResponder(WithErrorFormatter(customFormatter))
@@ -670,7 +672,7 @@ func TestTextResponder(t *testing.T) {
 				return stringer.String()
 			}
 
-			return MessageToString(message)
+			return internal.MessageToString(message)
 		}
 
 		responder := TextResponder(WithErrorFormatter(customFormatter))
@@ -1004,7 +1006,7 @@ func TestHTMLResponder(t *testing.T) {
 			case error:
 				return fmt.Sprintf(`<div class="error"><p>%s</p></div>`, v.Error())
 			default:
-				return fmt.Sprintf(`<p>%s</p>`, MessageToString(message))
+				return fmt.Sprintf(`<p>%s</p>`, internal.MessageToString(message))
 			}
 		}
 
@@ -1035,7 +1037,7 @@ func TestHTMLResponder(t *testing.T) {
 				return fmt.Sprintf(`<div class="alert alert-danger">%s</div>`, err.Error())
 			}
 
-			return MessageToString(message)
+			return internal.MessageToString(message)
 		}
 
 		responder := HTMLResponder(WithErrorFormatter(customFormatter))
@@ -1395,7 +1397,7 @@ Bob,"Special chars: @#$%^&*()"`
 			case error:
 				return fmt.Sprintf("error\n%s", v.Error())
 			default:
-				return MessageToString(message)
+				return internal.MessageToString(message)
 			}
 		}
 
@@ -1422,7 +1424,7 @@ Bob,"Special chars: @#$%^&*()"`
 				return fmt.Sprintf("status,message\nerror,%s", err.Error())
 			}
 
-			return MessageToString(message)
+			return internal.MessageToString(message)
 		}
 
 		responder := CSVResponder(WithErrorFormatter(customFormatter))
@@ -1787,7 +1789,7 @@ func TestXMLResponder(t *testing.T) {
 			case error:
 				return fmt.Sprintf(`<error><message>%s</message></error>`, v.Error())
 			default:
-				return fmt.Sprintf(`<message>%s</message>`, MessageToString(message))
+				return fmt.Sprintf(`<message>%s</message>`, internal.MessageToString(message))
 			}
 		}
 
@@ -1822,7 +1824,7 @@ func TestXMLResponder(t *testing.T) {
 </error>`, err.Error())
 			}
 
-			return MessageToString(message)
+			return internal.MessageToString(message)
 		}
 
 		responder := XMLResponder(WithErrorFormatter(customFormatter))

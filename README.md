@@ -34,6 +34,11 @@ func main() {
             "name": "John Doe",
             "email": "john@example.com",
         })
+        // or
+        // jsonResp.Send(w, responder.Success(http.StatusOK, map[string]string{
+        //     "name": "John Doe",
+        //     "email": "john@example.com",
+        // }))
     })
 
     http.HandleFunc("/api/error", func(w http.ResponseWriter, r *http.Request) {
@@ -41,6 +46,8 @@ func main() {
         err := someFunction()
         if err != nil {
             jsonResp.Send400(w, err, "Invalid request")
+            // or
+            // jsonResp.Send(w, responder.Error(http.StatusBadRequest, err, "Invalid request"))
             return
         }
     })
